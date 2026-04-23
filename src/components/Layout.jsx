@@ -1,13 +1,61 @@
 import { Outlet, useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { AppBar, Toolbar, Typography, IconButton, InputBase, Paper } from "@mui/material";
+import {
+  AppBar,
+  Toolbar,
+  Typography,
+  IconButton,
+  InputBase,
+  Paper,
+  Badge,
+  Menu,
+  MenuItem,
+  Avatar,
+  ListItemText,
+} from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
-import MusicNoteIcon from "@mui/icons-material/MusicNote";
+import AlbumIcon from "@mui/icons-material/Album";
 import MenuIcon from "@mui/icons-material/Menu";
 import HomeIcon from "@mui/icons-material/Home";
 import ManageSearchIcon from "@mui/icons-material/ManageSearch";
 import SmartDisplayIcon from "@mui/icons-material/SmartDisplay";
 import CloseIcon from "@mui/icons-material/Close";
-import { useRef, useState } from "react";
+import NotificationsNoneIcon from "@mui/icons-material/NotificationsNone";
+import { useEffect, useRef, useState } from "react";
+import { fetchSongs } from "../api";
+import { getYouTubeId, isYouTubeUrl } from "../utils/video";
+import ThumbnailWithDisc from "./ThumbnailWithDisc.jsx";
+
+function getSongTimestamp(song) {
+  const candidates = [
+    song?.createdAt,
+    song?.created_at,
+    song?.dateAdded,
+    song?.addedAt,
+    song?.publishedAt,
+    song?.updatedAt,
+  ];
+
+  for (const value of candidates) {
+    if (value == null) continue;
+
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+
+    const parsed = Date.parse(String(value));
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+
+  return null;
+}
+
+function getNotificationThumb(song) {
+  if (isYouTubeUrl(song?.url)) {
+    const ytId = getYouTubeId(song.url);
+    if (ytId) return `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg`;
+  }
+  return "";
+}
 
 export default function Layout() {
   const navigate = useNavigate();
@@ -18,11 +66,51 @@ export default function Layout() {
   const [miniPlayerTrack, setMiniPlayerTrack] = useState(null);
   const [sidebarExpanded, setSidebarExpanded] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [notificationAnchor, setNotificationAnchor] = useState(null);
+  const [recentSongs, setRecentSongs] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const songs = await fetchSongs();
+        if (cancelled) return;
+
+        const newest = [...songs]
+          .sort((a, b) => {
+            const timeA = getSongTimestamp(a);
+            const timeB = getSongTimestamp(b);
+
+            if (timeA != null && timeB != null) return timeB - timeA;
+            if (timeA != null) return -1;
+            if (timeB != null) return 1;
+
+            return Number(b?.id ?? 0) - Number(a?.id ?? 0);
+          })
+          .slice(0, 6);
+
+        setRecentSongs(newest);
+        setUnreadCount(newest.length);
+      } catch {
+        if (!cancelled) {
+          setRecentSongs([]);
+          setUnreadCount(0);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const hasSearchQuery = Boolean(initialQ.trim());
   const isHome = location.pathname === "/" && !hasSearchQuery;
   const isSearch = location.pathname === "/" && hasSearchQuery;
   const isWatch = location.pathname.startsWith("/watch/");
+  const notificationsOpen = Boolean(notificationAnchor);
 
   function navClass(isActive, expanded = sidebarExpanded) {
     return [
@@ -66,15 +154,19 @@ export default function Layout() {
 
             <IconButton onClick={() => navigate("/")} size="large" aria-label="Home">
               <div className="grid h-8 w-8 place-items-center rounded-lg bg-[#ff0033] text-white">
-                <MusicNoteIcon fontSize="small" />
+                <AlbumIcon fontSize="small" />
               </div>
             </IconButton>
 
             <Typography
               variant="h6"
-              className="hidden sm:block select-none tracking-tight"
+              className="hidden select-none uppercase tracking-widest sm:block"
               onClick={() => navigate("/")}
-              sx={{ cursor: "pointer" }}
+              style={{
+                cursor: "pointer",
+                fontFamily: '"Arial Black", Arial, sans-serif',
+                fontWeight: 900,
+              }}
             >
               DiscTrack
             </Typography>
@@ -107,9 +199,95 @@ export default function Layout() {
             </Paper>
           </div>
 
-          <div className="hidden md:block md:w-[260px]" />
+          <div className="flex min-w-[96px] items-center justify-end gap-2 sm:gap-3 md:w-[260px]">
+            <IconButton
+              aria-label="Open notifications"
+              onClick={(event) => {
+                setNotificationAnchor(event.currentTarget);
+                setUnreadCount(0);
+              }}
+            >
+              <Badge badgeContent={unreadCount} color="error" max={9}>
+                <NotificationsNoneIcon />
+              </Badge>
+            </IconButton>
+
+            <Avatar
+              sx={{
+                width: 34,
+                height: 34,
+                bgcolor: "#ef4444",
+                color: "#ffffff",
+                fontWeight: 800,
+                fontSize: 14,
+              }}
+            >
+              A
+            </Avatar>
+          </div>
         </Toolbar>
       </AppBar>
+
+      <Menu
+        anchorEl={notificationAnchor}
+        open={notificationsOpen}
+        onClose={() => setNotificationAnchor(null)}
+        transformOrigin={{ horizontal: "right", vertical: "top" }}
+        anchorOrigin={{ horizontal: "right", vertical: "bottom" }}
+        PaperProps={{
+          sx: {
+            minWidth: 310,
+            bgcolor: "#171717",
+            color: "#fff",
+            border: "1px solid rgba(255,255,255,0.08)",
+            mt: 1,
+          },
+        }}
+      >
+        <Typography variant="subtitle2" sx={{ px: 2, py: 1.5, fontWeight: 800 }}>
+          Recently added songs
+        </Typography>
+
+        {recentSongs.length === 0 ? (
+          <MenuItem disabled>No recently added songs.</MenuItem>
+        ) : (
+          recentSongs.map((song) => (
+            <MenuItem
+              key={song.id}
+              onClick={() => {
+                setNotificationAnchor(null);
+                navigate(`/watch/${song.id}`);
+              }}
+              sx={{ alignItems: "flex-start", py: 1, gap: 1.25 }}
+            >
+              <ThumbnailWithDisc
+                src={getNotificationThumb(song)}
+                alt={song.title || "Song thumbnail"}
+                fallbackText="No preview"
+                className="h-12 w-[84px] shrink-0 rounded-md"
+                thumbFrameClassName="ml-8 w-[calc(100%-2rem)] rounded-md"
+                imageClassName=""
+                discClassName="-left-3 h-14 w-14"
+                fallbackClassName="text-[11px]"
+              />
+
+              <ListItemText
+                primary={song.title || "Untitled"}
+                secondary={song.artist || "Unknown artist"}
+                primaryTypographyProps={{
+                  fontWeight: 900,
+                  noWrap: true,
+                  sx: { color: "#ffffff", fontSize: "1rem" },
+                }}
+                secondaryTypographyProps={{
+                  noWrap: true,
+                  sx: { color: "rgba(255,255,255,0.88)", fontWeight: 700 },
+                }}
+              />
+            </MenuItem>
+          ))
+        )}
+      </Menu>
 
       <div
         className={[

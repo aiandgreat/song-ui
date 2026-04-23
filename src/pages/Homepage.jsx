@@ -87,9 +87,6 @@ export default function HomePage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="rounded-full border border-white/10 bg-[#1f1f1f] px-3 py-1 text-xs text-zinc-300">
-          {filteredSongs.length} tracks
-        </div>
       </div>
 
       <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
